@@ -36,6 +36,7 @@ class command
             land_trigger = nh.serviceClient<std_srvs::Trigger>("/quadrotor/mav_services/land");
             takeoff_trigger = nh.serviceClient<std_srvs::Trigger>("/quadrotor/mav_services/takeoff");
             rc_calibration = nh.serviceClient<mavros_msgs::ParamGet>("/quadrotor/mavros/param/get");
+            bool get_RC_Calibration();
     }
 };
 
@@ -128,7 +129,7 @@ bool command::takeoff()
     return success;
 }
 
-bool command::get_RC_Calibration() //Move out of the node in future.
+bool command::get_RC_Calibration() 
 {
     bool success = false;
     mavros_msgs::ParamGet values;
