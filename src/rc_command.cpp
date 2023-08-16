@@ -11,15 +11,17 @@ class command
     private:
         std::string quadrotor;
     public:
+
+	command();
         //ROS Objects
         ros::NodeHandle nh;
         ros::Subscriber rc_in_cb;
         ros::ServiceClient vel_cmd,land_trigger,takeoff_trigger, rc_calibration;
         //Variables
-        float dshot_normalised[4] = {0.0};
-        uint16_t rc_channels[8] ={0};
-        float rc_mins[4] = {0.0};
-        float rc_max[4] = {0.0};
+        float dshot_normalised[4];
+        uint16_t rc_channels[8];
+        double rc_mins[4];
+        double rc_max[4];
 
         //Callback function Prototypes
         void rc_in_cb_(const mavros_msgs::RCIn::ConstPtr& msg);
@@ -30,21 +32,46 @@ class command
 
         //MAVROS Params to get
         
-    command(){
+   // command(){
+     //       quadrotor =std::getenv("MAV_NAME"); //Uncomment when uploading to robot
+//	    std::cout << "MAV_NAME: /" << quadrotor << std::endl;
+  //          rc_in_cb = nh.subscribe("/"+quadrotor+"/mavros/rc/in",1,&command::rc_in_cb_,this);
+    //        vel_cmd = nh.serviceClient<mav_manager::Vec4>("/"+quadrotor+"/mav_services/setDesVelInBodyFrame");
+       //     land_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/land");
+      //    takeoff_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/takeoff");
+       //     rc_calibration = nh.serviceClient<mavros_msgs::ParamGet>("/"+quadrotor+"/mavros/param/get");
+         //   dshot_normalised[4] = {0.0};
+           // rc_channels[8] ={0};        
+          //  rc_mins[4] = {0};
+          //  rc_max[4] = {0};
+          //  get_RC_Calibration();
+	  //  std::cout << "Calibration Value: " << rc_max[2] << std::endl;
+ //   }
+};
+
+
+command::command(){
+
             quadrotor =std::getenv("MAV_NAME"); //Uncomment when uploading to robot
-	    std::cout << "MAV_NAME: /" << quadrotor << std::endl;
+            std::cout << "MAV_NAME: /" << quadrotor << std::endl;
             rc_in_cb = nh.subscribe("/"+quadrotor+"/mavros/rc/in",1,&command::rc_in_cb_,this);
             vel_cmd = nh.serviceClient<mav_manager::Vec4>("/"+quadrotor+"/mav_services/setDesVelInBodyFrame");
             land_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/land");
             takeoff_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/takeoff");
             rc_calibration = nh.serviceClient<mavros_msgs::ParamGet>("/"+quadrotor+"/mavros/param/get");
-            get_RC_Calibration();
-	    // std::cout << "Calibration Value: " << rc_mins[0] << std::endl;
-    }
-};
+            dshot_normalised[4] = {0.0};
+            rc_channels[8] ={0};
+            rc_mins[4] = {0};
+            rc_max[4] = {0};
+            bool success = get_RC_Calibration();
+            ROS_WARN("RC_MAX[2]: %f", rc_max[2]);
 
+
+
+}
 void command::rc_in_cb_(const mavros_msgs::RCIn::ConstPtr& msg)
 {
+    // get_RC_Calibration();
     //Main DSHOT Channels
     rc_channels[0] = msg->channels[0]; //Roll
     rc_channels[1] = msg->channels[1]; //Pitch
@@ -63,10 +90,13 @@ void command::rc_in_cb_(const mavros_msgs::RCIn::ConstPtr& msg)
     //Normalising DSHOT
     for (int i {0}; i < 3; i++)
     {
-        dshot_normalised[i] = (static_cast<float>(rc_channels[i]) -static_cast<float>(rc_mins[i]) )/( static_cast<float>(rc_max[i]) -static_cast<float>(rc_mins[i]) ); //Changes: Replace with min and max
+        dshot_normalised[i] = (static_cast<float>(rc_channels[i]) - static_cast<float>(rc_mins[i]) )/(static_cast<float>(rc_max[i]) -static_cast<float>(rc_mins[i]) ); //Changes: Replace with min and max
     }
+    std::cout << "RC_Channels:  " << rc_channels[2] << std::endl;
+    std::cout << "RC_Min: " << rc_mins[2] << std::endl;
+    std::cout << "RC_MAX: " << rc_max[2] << std::endl;
     std::cout << "Normalised Dshot: " << dshot_normalised[2] << std::endl;
-
+    std::cout << "RC_AVG: " <<( rc_max[2]- rc_mins[2] )<< std::endl;
     //Calling Vec4 Service
     if (rc_channels[5] > 1700) //To make sure Velocity command is not sent all the time in off-board.
     {
@@ -84,8 +114,12 @@ void command::rc_in_cb_(const mavros_msgs::RCIn::ConstPtr& msg)
         command::land();
 	land_takeoff_trigger++;
     }
+    if (rc_channels[6] < 1350)
+    {
+	land_takeoff_trigger = 1;
+    }
    // ROS_WARN("Not Normalised Throttle: %f", dshot_normalised[2]);
-   // ROS_INFO("Throttle: %f", (2.0*dshot_normalised[2]-1));
+   ROS_INFO("Throttle: %f", (2.0*dshot_normalised[2]-1));
 }
 
 bool command::velocity()
@@ -154,20 +188,22 @@ bool command::get_RC_Calibration()
         params.push_back("RC3_MAX");
         params.push_back("RC4_MAX");
 
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < 8; i++)
     {
         values.request.param_id = params[i];
-	std::cout <<"Getting Param: " << params[i] << std::endl;
+	//std::cout <<"Getting Param: " << params[i] << std::endl;
         try
         {   
             rc_calibration.call(values);
-	    if (i<5)
+	    if (i<4)
 	    {
             rc_mins[i] = values.response.value.real;
 	    }
 	    else
 	    {
-	    rc_max[i] = values.response.value.real;
+	    //ROS_WARN("Getting MAX values");
+	    rc_max[i-4] = values.response.value.real;
+	    std::cout << "Funtion RC_MAX: " << rc_max[i-4]<< " index: " << i << std::endl;
 	    }
         }
         catch(const std::exception& e)
@@ -175,6 +211,7 @@ bool command::get_RC_Calibration()
             success = false;
         }
     }
+    std::cout << "Funtion RC_MAX: " << rc_max[2] << std::endl;
     return success;
 }
 
