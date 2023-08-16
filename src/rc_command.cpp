@@ -16,7 +16,7 @@ class command
         //ROS Objects
         ros::NodeHandle nh;
         ros::Subscriber rc_in_cb;
-        ros::ServiceClient vel_cmd,land_trigger,takeoff_trigger, rc_calibration;
+        ros::ServiceClient vel_cmd,land_trigger,takeoff_trigger, rc_calibration, hover_trigger;
         //Variables
         float dshot_normalised[4];
         uint16_t rc_channels[8];
@@ -29,15 +29,17 @@ class command
         bool land();
         bool takeoff();
         bool get_RC_Calibration();
+        bool hover();
 };
 
 command::command(){
                 quadrotor =std::getenv("MAV_NAME"); //Uncomment when uploading to robot
-                std::cout << "MAV_NAME: /" << quadrotor << std::endl;
+               // std::cout << "MAV_NAME: /" << quadrotor << std::endl;
                 rc_in_cb = nh.subscribe("/"+quadrotor+"/mavros/rc/in",1,&command::rc_in_cb_,this);
                 vel_cmd = nh.serviceClient<mav_manager::Vec4>("/"+quadrotor+"/mav_services/setDesVelInBodyFrame");
                 land_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/land");
                 takeoff_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/takeoff");
+                hover_trigger = nh.serviceClient<std_srvs::Trigger>("/"+quadrotor+"/mav_services/hover");
                 rc_calibration = nh.serviceClient<mavros_msgs::ParamGet>("/"+quadrotor+"/mavros/param/get");
                 dshot_normalised[4] = {0.0};
                 rc_channels[8] ={0};
@@ -64,13 +66,19 @@ void command::rc_in_cb_(const mavros_msgs::RCIn::ConstPtr& msg)
     //Normalising DSHOT
     for (int i {0}; i < 3; i++)
     {
-        dshot_normalised[i] = (static_cast<float>(rc_channels[i]) - static_cast<float>(rc_mins[i]) )/(static_cast<float>(rc_max[i]) -static_cast<float>(rc_mins[i]) ); //Changes: Replace with min and max
+        dshot_normalised[i] = (static_cast<float>(rc_channels[i]) - 1500.00 )/(static_cast<float>(rc_max[i]) -static_cast<float>(rc_mins[i]) ); //Changes: Replace with min and max
     }
-
+    static bool velocity_mode = false;
     //Calling Vec4 Service
-    if (rc_channels[5] > 1700) //To make sure Velocity command is not sent all the time in off-board.
+    if (rc_channels[5] > 1750) //To make sure Velocity command is not sent all the time in off-board.
     {
         command::velocity();
+	velocity_mode = true;
+    }
+    else if ((rc_channels[5] < 1750) &&(rc_channels[5] > 1350) && velocity_mode)
+    {
+	command::hover();
+	velocity_mode = false;
     }
     
     static int land_takeoff_trigger = 0; //Trigger for making sure land and take-off is not called always
@@ -98,18 +106,20 @@ bool command::velocity()
     
     mav_manager::Vec4 main_channels;
     //Deadzone
-    for (int i =0; i<4; i++)
-    {
-        if ((dshot_normalised[i] < 0.525) && (dshot_normalised[i]>0.475))
-        {
-            dshot_normalised[i] = 0.5;
-        }
-    }
+   // for (int i =0; i<4; i++)
+   // {
+   //     if ((dshot_normalised[i] < 0.525) && (dshot_normalised[i]>0.475))
+   //     {
+  //          dshot_normalised[i] = 0.5;
+//	    std::cout << "In the deadzone: " << std::endl;
+//	    std::cout << "velocity setpoint: " << dshot_normalised[i] << std::endl;
+ //       }
+//    }
     main_channels.request.goal[0] = dshot_normalised[1]; //Pitch
     main_channels.request.goal[1] = dshot_normalised[0]; //Roll
-    main_channels.request.goal[2] = 2.0*dshot_normalised[2]-1; //Throttle
+    main_channels.request.goal[2] = dshot_normalised[2]; //Throttle
     main_channels.request.goal[3] = dshot_normalised[3]; //Yaw
-    
+    std::cout << "velocity setpoint: " << dshot_normalised[2] << std::endl;
     vel_cmd.call(main_channels);
 
     return success;
@@ -141,7 +151,24 @@ bool command::takeoff()
     ROS_INFO("Taking off");
     try
     {
-        land_trigger.call(trigger_takeoff);
+        takeoff_trigger.call(trigger_takeoff);
+        success = true;
+    }
+    catch(const std::exception& e)
+    {
+        success = false;
+    }
+    return success;
+}
+
+bool command::hover()
+{
+    bool success = false;
+    std_srvs::Trigger trigger_hover;
+    ROS_INFO("Hovering");
+    try
+    {
+        hover_trigger.call(trigger_hover);
         success = true;
     }
     catch(const std::exception& e)
@@ -188,7 +215,7 @@ bool command::get_RC_Calibration()
             success = false;
         }
     }
-    std::cout << "Funtion RC_MAX: " << rc_max[2] << std::endl;
+   // std::cout << "Funtion RC_MAX: " << rc_max[2] << std::endl;
     return success;
 }
 
